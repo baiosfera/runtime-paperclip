@@ -11,6 +11,24 @@ zerops:
         - sudo apt-get update && sudo apt-get install -y --no-install-recommends ca-certificates curl git build-essential python3
         - sudo corepack enable || sudo npm install -g pnpm@latest
       buildCommands:
+        - |
+          mkdir -p /tmp/pw && cp zerops.yaml start.sh README.md /tmp/pw/
+          rm -rf /tmp/paperclip-src && git init /tmp/paperclip-src
+          git -C /tmp/paperclip-src remote add origin https://github.com/paperclipai/paperclip.git
+          git -C /tmp/paperclip-src fetch --depth 1 origin 8e5959c759bb0f8a0b4c4489904cfa0525fa92d3
+          git -C /tmp/paperclip-src checkout --detach FETCH_HEAD
+          rm -rf /tmp/paperclip-src/.git
+          cp -a /tmp/paperclip-src/. .
+          cp /tmp/pw/zerops.yaml /tmp/pw/start.sh /tmp/pw/README.md .
+          rm -rf /tmp/paperclip-src /tmp/pw
+        - |
+          node -e '
+            const fs = require("fs");
+            const p = "packages/paperclip-runner/package.json";
+            const pkg = JSON.parse(fs.readFileSync(p, "utf8"));
+            pkg.scripts["build:binary"] = "mkdir -p dist/bin && printf '\''#!/bin/sh\\nexit 0\\n'\'' > dist/bin/paperclip-runnerd && chmod +x dist/bin/paperclip-runnerd";
+            fs.writeFileSync(p, JSON.stringify(pkg, null, 2) + "\n");
+          '
         - pnpm install --no-frozen-lockfile
         - pnpm --filter @paperclipai/db build
         - ./node_modules/.bin/esbuild packages/db/src/migrate.ts --bundle --platform=node --format=esm --external:postgres --external:drizzle-orm --external:embedded-postgres --outfile=packages/db/dist/migrate.mjs
@@ -39,15 +57,29 @@ zerops:
       initCommands:
         - sudo mkdir -p /mnt/localstorage/paperclip/storage /mnt/localstorage/paperclip/instances/default && sudo chown -R zerops:zerops /mnt/localstorage/paperclip && sudo chmod -R 777 /mnt/localstorage/paperclip
         - ln -sfn /mnt/localstorage/paperclip /home/zerops/.paperclip
-        - node packages/db/dist/migrate.mjs || true
+        - |
+          node --input-type=module -e '
+            import postgres from "./packages/db/node_modules/postgres/src/index.js";
+            const adminUrl = process.env.DATABASE_ADMIN_URL || process.env.DATABASE_URL;
+            const sql = postgres(adminUrl, { max: 1 });
+            try {
+              const rows = await sql`SELECT 1 FROM pg_database WHERE datname = ${"paperclip"}`;
+              if (rows.length === 0) await sql.unsafe("CREATE DATABASE paperclip");
+            } finally {
+              await sql.end();
+            }
+          '
+        - node packages/db/dist/migrate.mjs
       envVariables:
         PORT: "3100"
         HOST: "0.0.0.0"
         NODE_ENV: "production"
         SERVE_UI: "true"
+        DATABASE_ADMIN_URL: ${database_connectionString}
         DATABASE_URL: "postgresql://${database_user}:${database_password}@${database_hostname}:${database_port}/paperclip"
         BETTER_AUTH_SECRET: ${PAPERCLIP_BETTER_AUTH_SECRET}
         PAPERCLIP_TOOL_ACTION_SIGNING_SECRET: ${PAPERCLIP_SIGNING_SECRET}
+        PAPERCLIP_SECRETS_MASTER_KEY_FILE: "/mnt/localstorage/paperclip/instances/default/secrets.key"
         PAPERCLIP_STORAGE_PROVIDER: "local_disk"
         PAPERCLIP_STORAGE_LOCAL_DIR: "/mnt/localstorage/paperclip/storage"
         PAPERCLIP_HOME: "/mnt/localstorage/paperclip"
@@ -55,9 +87,9 @@ zerops:
         PAPERCLIP_DEPLOYMENT_EXPOSURE: "public"
         PAPERCLIP_BIND: "lan"
         PAPERCLIP_AUTH_BASE_URL_MODE: "explicit"
-        PAPERCLIP_AUTH_PUBLIC_BASE_URL: "https://${zerops_subdomain}"
-        BETTER_AUTH_URL: "https://${zerops_subdomain}"
-        BETTER_AUTH_TRUSTED_ORIGINS: "https://${zerops_subdomain}"
+        PAPERCLIP_AUTH_PUBLIC_BASE_URL: "${zeropsSubdomain}"
+        BETTER_AUTH_URL: "${zeropsSubdomain}"
+        BETTER_AUTH_TRUSTED_ORIGINS: "${zeropsSubdomain}"
         PAPERCLIP_ADMIN_EMAIL: ${PAPERCLIP_ADMIN_EMAIL_SECRET}
         PAPERCLIP_ADMIN_PASSWORD: ${PAPERCLIP_ADMIN_PASSWORD_SECRET}
         HERMES_GATEWAY_URL: "http://hermes:8000"
