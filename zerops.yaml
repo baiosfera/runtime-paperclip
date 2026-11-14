@@ -132,6 +132,8 @@ zerops:
         SERVE_UI: "true"
         DATABASE_ADMIN_URL: "postgresql://${database_superUser}:${database_superUserPassword}@${database_hostname}:${database_port}/${database_dbName}"
         DATABASE_URL: "postgresql://${database_user}:${database_password}@${database_hostname}:${database_port}/paperclip"
+        DATABASE_POOL_MAX: "4"
+        DATABASE_IDLE_TIMEOUT_SECONDS: "30"
         BETTER_AUTH_SECRET: ${PAPERCLIP_BETTER_AUTH_SECRET}
         PAPERCLIP_TOOL_ACTION_SIGNING_SECRET: ${PAPERCLIP_SIGNING_SECRET}
         PAPERCLIP_SECRETS_MASTER_KEY_FILE: "/mnt/localstorage/paperclip/instances/default/secrets.key"
