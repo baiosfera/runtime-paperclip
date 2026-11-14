@@ -194,30 +194,45 @@ async function main(): Promise<void> {
   const sessionObj = (sessionRes.data || {}) as JsonMap;
   let userId = ((sessionObj.user as JsonMap | undefined)?.id as string | undefined) || "";
 
-  const sql = postgres(resolveDbUrl(), { max: 1 });
-  try {
-    if (!userId) {
-      const rows = await sql`SELECT id FROM "user" WHERE lower(email) = lower(${adminEmail}) LIMIT 1`;
-      userId = (rows[0]?.id as string | undefined) || "";
-    }
-    if (!userId) {
-      throw new Error("Unable to resolve Paperclip admin user ID after authentication");
-    }
+  const dbUrl = resolveDbUrl();
+  let lastDbErr: unknown = null;
+  for (let attempt = 1; attempt <= 6; attempt++) {
+    const sql = postgres(dbUrl, { max: 1, connect_timeout: 10 });
+    try {
+      if (!userId) {
+        const rows = await sql`SELECT id FROM "user" WHERE lower(email) = lower(${adminEmail}) LIMIT 1`;
+        userId = (rows[0]?.id as string | undefined) || "";
+      }
+      if (!userId) {
+        throw new Error("Unable to resolve Paperclip admin user ID after authentication");
+      }
 
-    await sql`
-      INSERT INTO instance_user_roles (user_id, role)
-      VALUES (${userId}, 'instance_admin')
-      ON CONFLICT (user_id, role) DO NOTHING
-    `;
+      await sql`
+        INSERT INTO instance_user_roles (user_id, role)
+        VALUES (${userId}, 'instance_admin')
+        ON CONFLICT (user_id, role) DO NOTHING
+      `;
 
-    await sql`
-      UPDATE invites
-      SET revoked_at = NOW(), updated_at = NOW()
-      WHERE invite_type = 'bootstrap_ceo' AND revoked_at IS NULL AND accepted_at IS NULL
-    `;
-  } finally {
-    await sql.end();
+      await sql`
+        UPDATE invites
+        SET revoked_at = NOW(), updated_at = NOW()
+        WHERE invite_type = 'bootstrap_ceo' AND revoked_at IS NULL AND accepted_at IS NULL
+      `;
+      lastDbErr = null;
+      break;
+    } catch (err) {
+      lastDbErr = err;
+      const msg = err instanceof Error ? err.message : String(err);
+      const transient = msg.includes("connection slots") || msg.includes("ECONNREFUSED") || msg.includes("53300");
+      if (!transient || attempt === 6) {
+        throw err;
+      }
+      await new Promise((r) => setTimeout(r, attempt * 2000));
+    } finally {
+      await sql.end({ timeout: 2 }).catch(() => {});
+    }
   }
+  if (lastDbErr) throw lastDbErr;
 
   const companiesRes = await apiRequest("/api/companies", cookies);
   if (!companiesRes.ok || !Array.isArray(companiesRes.data)) {
@@ -250,13 +265,18 @@ async function main(): Promise<void> {
   const existingByName = new Map<string, JsonMap>();
   for (const agent of agentsRes.data as JsonMap[]) {
     if (isLegacyDummyAgent(agent)) {
-      const delRes = await apiRequest(`/api/companies/${companyId}/agents/${String(agent.id)}`, cookies, {
+      await apiRequest(`/api/agents/${String(agent.id)}/terminate`, cookies, {
+        method: "POST",
+        body: {},
+      });
+      const delRes = await apiRequest(`/api/agents/${String(agent.id)}`, cookies, {
         method: "DELETE",
       });
       if (delRes.ok) {
         console.log(`• [bootstrap-org] Removed legacy dummy agent: ${String(agent.name)}`);
         continue;
       }
+      console.warn(`• [bootstrap-org] Failed removing legacy dummy agent ${String(agent.name)} (HTTP ${delRes.status}): ${delRes.text}`);
     }
     if (typeof agent.name === "string") {
       existingByName.set(agent.name.toLowerCase(), agent);
@@ -278,7 +298,30 @@ async function main(): Promise<void> {
   const ensureAgent = async (spec: JsonMap): Promise<JsonMap> => {
     const key = String(spec.name).toLowerCase();
     const existing = existingByName.get(key);
-    if (existing) return existing;
+    if (existing) {
+      const existingCfg = (existing.adapterConfig || {}) as JsonMap;
+      const desiredCfg = (spec.adapterConfig || {}) as JsonMap;
+      const needsCfgSync =
+        (desiredCfg.runner !== undefined && existingCfg.runner !== desiredCfg.runner) ||
+        (desiredCfg.url !== undefined && existingCfg.url !== desiredCfg.url) ||
+        (desiredCfg.headers !== undefined &&
+          JSON.stringify(existingCfg.headers || {}) !== JSON.stringify(desiredCfg.headers));
+      if (needsCfgSync) {
+        const patched = await apiRequest(`/api/agents/${String(existing.id)}`, cookies, {
+          method: "PATCH",
+          body: {
+            adapterConfig: { ...existingCfg, ...desiredCfg },
+            ...(spec.capabilities ? { capabilities: spec.capabilities } : {}),
+          },
+        });
+        if (patched.ok && patched.data) {
+          const updatedObj = patched.data as JsonMap;
+          existingByName.set(key, updatedObj);
+          return updatedObj;
+        }
+      }
+      return existing;
+    }
     const created = await apiRequest(`/api/companies/${companyId}/agents`, cookies, {
       method: "POST",
       body: spec,
