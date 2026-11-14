@@ -57,6 +57,31 @@ async function apiRequest(
   return { ok: res.ok, status: res.status, data, text };
 }
 
+async function resolveHermesApiBaseUrl(): Promise<{ url: string; tls: boolean }> {
+  const explicit = (process.env.HERMES_PUBLIC_URL || "").trim().replace(/\/+$/, "");
+  if (explicit.startsWith("https://")) {
+    return { url: explicit, tls: true };
+  }
+  const selfSubdomain = (process.env.zeropsSubdomain || process.env.PAPERCLIP_AUTH_PUBLIC_BASE_URL || "").trim();
+  if (selfSubdomain.startsWith("https://")) {
+    try {
+      const parsed = new URL(selfSubdomain);
+      const derivedHost = parsed.hostname.replace(/^paperclip-([^-]+)-\d+\./, "hermes-$1-8000.");
+      if (derivedHost !== parsed.hostname) {
+        const candidate = `https://${derivedHost}`;
+        const probe = await fetch(`${candidate}/health`, { signal: AbortSignal.timeout(3000) });
+        if (probe.ok) {
+          return { url: candidate, tls: true };
+        }
+      }
+    } catch {
+      // Fallback to internal private HTTP URL below
+    }
+  }
+  const internal = (process.env.HERMES_GATEWAY_URL || "http://hermes:8000").trim().replace(/\/+$/, "");
+  return { url: internal, tls: internal.startsWith("https://") };
+}
+
 async function waitForHealth(maxSeconds = 60): Promise<void> {
   const deadline = Date.now() + maxSeconds * 1000;
   while (Date.now() < deadline) {
@@ -187,6 +212,7 @@ async function main(): Promise<void> {
     return createdObj;
   };
 
+  const hermesTarget = await resolveHermesApiBaseUrl();
   const hermes = await ensureAgent({
     name: "Hermes",
     role: "ceo",
@@ -194,9 +220,9 @@ async function main(): Promise<void> {
     capabilities: "Sovereign multi-channel orchestrator, Telegram & NATS gateway, CrewAI router, Linear bridge",
     adapterType: "hermes_gateway",
     adapterConfig: {
-      apiBaseUrl: "http://hermes:8000",
+      apiBaseUrl: hermesTarget.url,
       apiKey: hermesApiKey,
-      dangerouslyAllowInsecureRemoteHttp: true,
+      ...(hermesTarget.tls ? {} : { dangerouslyAllowInsecureRemoteHttp: true }),
       paperclipApiUrl: "http://paperclip:3100",
       sessionKeyStrategy: "issue",
       timeoutSec: 300,
@@ -213,7 +239,7 @@ async function main(): Promise<void> {
     capabilities: "ZCP control-plane architect, Zerops MCP infrastructure orchestrator, F0-F5 epistemic governance",
     adapterType: "http",
     adapterConfig: {
-      url: "http://zcp:8080/healthz",
+      url: "http://zcp:8080/zcp-login",
       method: "POST",
       timeoutSec: 60,
     },
@@ -241,9 +267,9 @@ async function main(): Promise<void> {
     capabilities: "Polymorphic CrewAI swarm runner via Hermes gateway & sovereign skill registry",
     adapterType: "hermes_gateway",
     adapterConfig: {
-      apiBaseUrl: "http://hermes:8000",
+      apiBaseUrl: hermesTarget.url,
       apiKey: hermesApiKey,
-      dangerouslyAllowInsecureRemoteHttp: true,
+      ...(hermesTarget.tls ? {} : { dangerouslyAllowInsecureRemoteHttp: true }),
       paperclipApiUrl: "http://paperclip:3100",
       headers: { "X-Crew-Name": "research" },
       sessionKeyStrategy: "issue",
