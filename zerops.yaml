@@ -147,7 +147,7 @@ zerops:
         BETTER_AUTH_URL: "${zeropsSubdomain}"
         BETTER_AUTH_TRUSTED_ORIGINS: "${zeropsSubdomain}"
         PAPERCLIP_AUTH_RATE_LIMIT_ENABLED: "false"
-        PAPERCLIP_HTTP_ADAPTER_PRIVATE_ENDPOINT_ALLOWLIST: "http://pidev:3000,http://hermes:8000,http://zcp:8080"
+        PAPERCLIP_HTTP_ADAPTER_PRIVATE_ENDPOINT_ALLOWLIST: "http://pidev:3000,http://hermes:8000,http://bifrost:8080"
         # PROJECT_NAME, BIFROST_MASTER_VK, PAPERCLIP_ADMIN_EMAIL, PAPERCLIP_ADMIN_PASSWORD
         # are inherited directly from Project Shared Vault without self-shadowing
         HERMES_GATEWAY_URL: "http://hermes:8000"

@@ -73,9 +73,14 @@ node -e '
 mkdir -p "$HOME"
 ln -sfn /mnt/localstorage/paperclip "$HOME/.paperclip"
 
-# 4. Auto-bootstrap idempotente (admin instance_admin, company y Org Chart inicial en background)
+# 4. Auto-bootstrap idempotente (admin instance_admin, company y Org Chart inicial con log persistente)
 if [ -f "packages/db/dist/bootstrap-org.mjs" ]; then
-    node packages/db/dist/bootstrap-org.mjs &
+    BOOTSTRAP_LOG="${CONFIG_DIR}/logs/bootstrap-org.log"
+    echo "• [Paperclip] Lanzando bootstrap-org.mjs (log: ${BOOTSTRAP_LOG})..."
+    (
+        echo "=== [bootstrap-org] $(date -u +%Y-%m-%dT%H:%M:%SZ) ==="
+        node packages/db/dist/bootstrap-org.mjs
+    ) >> "$BOOTSTRAP_LOG" 2>&1 &
 fi
 
 # 5. Iniciar servidor Node.js
