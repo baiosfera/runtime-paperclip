@@ -73,6 +73,11 @@ node -e '
 mkdir -p "$HOME"
 ln -sfn /mnt/localstorage/paperclip "$HOME/.paperclip"
 
-# 4. Iniciar servidor Node.js
+# 4. Auto-bootstrap idempotente (admin instance_admin, company y Org Chart inicial en background)
+if [ -f "packages/db/dist/bootstrap-org.mjs" ]; then
+    node packages/db/dist/bootstrap-org.mjs &
+fi
+
+# 5. Iniciar servidor Node.js
 echo "• [Paperclip] Ejecutando runtime index.mjs en puerto ${PORT:-3100}..."
 exec node server/dist-runtime/index.mjs
