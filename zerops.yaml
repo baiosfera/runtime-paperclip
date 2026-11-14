@@ -87,7 +87,7 @@ zerops:
         - pnpm --filter @paperclipai/server build:runtime
         - sed -i 's|/build/source|/var/www|g' server/dist-runtime/*.mjs
         - rm -f server/dist-runtime/*.map server/dist/*.map
-        - rm -rf .git docs doc tests ui/src ui/storybook packages/paperclip-runner server/src
+        - rm -rf docs doc tests ui/src ui/storybook packages/paperclip-runner server/src
       deployFiles:
         - .
       cache:
@@ -143,6 +143,7 @@ zerops:
         PAPERCLIP_BIND: "lan"
         PAPERCLIP_AUTH_BASE_URL_MODE: "explicit"
         PAPERCLIP_AUTH_PUBLIC_BASE_URL: "${zeropsSubdomain}"
+        PAPERCLIP_PUBLIC_URL: "${zeropsSubdomain}"
         BETTER_AUTH_URL: "${zeropsSubdomain}"
         BETTER_AUTH_TRUSTED_ORIGINS: "${zeropsSubdomain}"
         PAPERCLIP_AUTH_RATE_LIMIT_ENABLED: "false"

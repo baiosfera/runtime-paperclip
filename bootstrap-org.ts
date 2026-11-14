@@ -35,7 +35,7 @@ async function apiRequest(
     .map(([k, v]) => `${k}=${v}`)
     .join("; ");
   const headers: Record<string, string> = {
-    Origin: PUBLIC_ORIGIN,
+    Origin: path.startsWith("/api/auth/") ? PUBLIC_ORIGIN : BASE_URL,
     Accept: "application/json",
   };
   if (cookieHeader) headers.Cookie = cookieHeader;
