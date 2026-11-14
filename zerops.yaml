@@ -35,18 +35,47 @@ zerops:
           cat <<'EOF' > packages/db/src/ensure-db.ts
           import postgres from "postgres";
 
+          const quoteIdent = (name: string): string => `"${name.replace(/"/g, "\"\"")}"`;
+
           const adminUrl = process.env.DATABASE_ADMIN_URL || process.env.DATABASE_URL;
-          if (!adminUrl) {
+          const appUrl = process.env.DATABASE_URL || adminUrl;
+          if (!adminUrl || !appUrl) {
             throw new Error("Missing DATABASE_ADMIN_URL / DATABASE_URL");
           }
+
+          const parsedApp = new URL(appUrl);
+          const targetDb = parsedApp.pathname.replace(/^\//, "") || "paperclip";
+          const appUser = decodeURIComponent(parsedApp.username || "");
+          if (!/^[a-zA-Z0-9_-]+$/.test(targetDb)) {
+            throw new Error(`Unsafe target database name: ${targetDb}`);
+          }
+
           const sql = postgres(adminUrl, { max: 1 });
           try {
-            const rows = await sql`SELECT 1 FROM pg_database WHERE datname = ${"paperclip"}`;
+            const rows = await sql`SELECT 1 FROM pg_database WHERE datname = ${targetDb}`;
             if (rows.length === 0) {
-              await sql.unsafe("CREATE DATABASE paperclip");
+              if (appUser) {
+                await sql.unsafe(`CREATE DATABASE ${quoteIdent(targetDb)} OWNER ${quoteIdent(appUser)}`);
+              } else {
+                await sql.unsafe(`CREATE DATABASE ${quoteIdent(targetDb)}`);
+              }
+            } else if (appUser) {
+              await sql.unsafe(`ALTER DATABASE ${quoteIdent(targetDb)} OWNER TO ${quoteIdent(appUser)}`);
             }
           } finally {
             await sql.end();
+          }
+
+          if (appUser) {
+            const targetAdminUrl = new URL(adminUrl);
+            targetAdminUrl.pathname = `/${targetDb}`;
+            const dbSql = postgres(targetAdminUrl.toString(), { max: 1 });
+            try {
+              await dbSql.unsafe(`ALTER SCHEMA public OWNER TO ${quoteIdent(appUser)}`);
+              await dbSql.unsafe(`GRANT ALL PRIVILEGES ON SCHEMA public TO ${quoteIdent(appUser)}`);
+            } finally {
+              await dbSql.end();
+            }
           }
           EOF
         - ./node_modules/.bin/esbuild packages/db/src/ensure-db.ts --bundle --platform=node --format=esm --main-fields=module,main --banner:js="import { createRequire as __cr } from 'node:module'; const require = __cr(import.meta.url);" --outfile=packages/db/dist/ensure-db.mjs
@@ -100,7 +129,7 @@ zerops:
         HOST: "0.0.0.0"
         NODE_ENV: "production"
         SERVE_UI: "true"
-        DATABASE_ADMIN_URL: ${database_connectionString}
+        DATABASE_ADMIN_URL: "postgresql://${database_superUser}:${database_superUserPassword}@${database_hostname}:${database_port}/${database_dbName}"
         DATABASE_URL: "postgresql://${database_user}:${database_password}@${database_hostname}:${database_port}/paperclip"
         BETTER_AUTH_SECRET: ${PAPERCLIP_BETTER_AUTH_SECRET}
         PAPERCLIP_TOOL_ACTION_SIGNING_SECRET: ${PAPERCLIP_SIGNING_SECRET}
