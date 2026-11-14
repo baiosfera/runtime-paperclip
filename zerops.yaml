@@ -80,7 +80,7 @@ zerops:
           EOF
         - ./node_modules/.bin/esbuild packages/db/src/ensure-db.ts --bundle --platform=node --format=esm --main-fields=module,main --banner:js="import { createRequire as __cr } from 'node:module'; const require = __cr(import.meta.url);" --outfile=packages/db/dist/ensure-db.mjs
         - ./node_modules/.bin/esbuild packages/db/src/migrate.ts --bundle --platform=node --format=esm --main-fields=module,main --banner:js="import { createRequire as __cr } from 'node:module'; const require = __cr(import.meta.url);" --external:embedded-postgres --outfile=packages/db/dist/migrate.mjs
-        - ./node_modules/.bin/esbuild bootstrap-org.ts --bundle --platform=node --format=esm --main-fields=module,main --banner:js="import { createRequire as __cr } from 'node:module'; const require = __cr(import.meta.url);" --outfile=packages/db/dist/bootstrap-org.mjs
+        - cp bootstrap-org.ts packages/db/src/bootstrap-org.ts && ./node_modules/.bin/esbuild packages/db/src/bootstrap-org.ts --bundle --platform=node --format=esm --main-fields=module,main --banner:js="import { createRequire as __cr } from 'node:module'; const require = __cr(import.meta.url);" --outfile=packages/db/dist/bootstrap-org.mjs
         - pnpm --filter @paperclipai/ui build
         - pnpm --filter @paperclipai/plugin-sdk build
         - PAPERCLIP_TSC_EMIT_ONLY=1 pnpm --filter @paperclipai/server build
